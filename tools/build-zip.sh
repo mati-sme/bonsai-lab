@@ -8,7 +8,7 @@ python3 - "$OUT" <<'PY'
 import sys, os, zipfile
 out = sys.argv[1]
 files = ['index.html', 'style.css', 'README.md']
-for d in ('js', 'icons'):
+for d in ('js', 'icons', 'fonts'):
     for root, _, fs in os.walk(d):
         files += [os.path.join(root, f) for f in sorted(fs)]
 with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
