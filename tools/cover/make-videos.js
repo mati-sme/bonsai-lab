@@ -61,7 +61,7 @@ async function video(browser, name, vw, vh, dpr, mobile) {
       if (wait-- > 0) return;
       const r = B.run; if (!r || r.over) return;
       const opt = $('#aOpts .opt.best') || $('#aOpts .opt:not([disabled])');
-      if (!$('#alert').classList.contains('hidden')) { if (!window.__seenAlert) { window.__seenAlert = 1; wait = 6; return; } if (opt) { opt.click(); window.__seenAlert = 0; wait = 2; } return; }
+      if (!$('#alert').classList.contains('hidden')) { if (!window.__seenAlert) { window.__seenAlert = 1; wait = 6; return; } r.spares = Math.max(r.spares, 1); const o2 = $('#aOpts .opt.best') || $('#aOpts .opt:not([disabled])'); if (o2) { o2.click(); wait = 2; } return; }
       const buy = $('.sheet .btn.go'); if (vis(buy)) { buy.click(); wait = 2; return; }
       if (!$('#sheet').classList.contains('hidden')) { const x = $('#sheetCard [data-close]'); if (x) x.click(); return; }
       const ptr = $('#pointer');
