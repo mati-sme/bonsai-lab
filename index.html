@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#2a1a10">
+<meta name="description" content="Bonsai Lab: run a tiny cozy 3D-printing shop against the clock. Fix clogged nozzles, keep customers happy, make it to the expo.">
+<title>Bonsai Lab</title>
+<link rel="icon" href="icons/icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="cv"></canvas>
+
+  <!-- in-season HUD -->
+  <div id="hud" class="hidden">
+    <div class="topbar" id="topbar">
+      <span class="chip money" title="Money">💵 <b id="hMoney">0</b></span>
+      <span class="chip" title="Shop rating">⭐ <b id="hRating">3.0</b></span>
+      <span class="chip timer" title="Time until the expo"><span>🎪</span><b id="hTime">10:00</b><i class="tbar"><i id="hTimeBar"></i></i></span>
+      <span class="chip rent" id="hRentChip" title="Next rent">🏠 <b id="hRent">$60</b> <small id="hRentT">2:30</small></span>
+      <span class="grow"></span>
+      <button class="round" id="btnSpeed" aria-label="Speed">⏩<small id="speedTxt">1×</small></button>
+      <button class="round" id="btnPause" aria-label="Pause">⏸️</button>
+    </div>
+    <div id="tray">
+      <div class="tray-head">
+        <span class="th-title">📥 <b id="ordCount">0</b></span>
+        <div class="inv" id="inv"></div>
+      </div>
+      <div id="orders" class="orders"></div>
+      <div class="actions">
+        <button class="act" id="btnShop">🛒<small>Supplies</small></button>
+        <button class="act" id="btnUps">🛠️<small>Upgrades</small><i class="dot hidden" id="dotUps"></i></button>
+        <button class="act" id="btnHelp">❓<small>Help</small></button>
+      </div>
+    </div>
+    <div id="hint" class="hidden"></div>
+    <div id="pausedBadge" class="hidden">⏸️ Paused<small>tap ▶️ to go on</small></div>
+  </div>
+
+  <!-- between seasons -->
+  <div id="home">
+    <header class="hometop">
+      <div class="logo"><span class="lg-b">Bonsai</span> <span class="lg-l">Lab</span></div>
+      <div class="wallet"><span class="chip" title="Reputation">⭐ <b id="repTxt">0</b></span><span class="chip hidden" id="trophyChip" title="Trophies">🏆 <b id="trophyTxt">0</b></span>
+        <button class="round small" id="btnMute" aria-label="Sound">🔊</button></div>
+    </header>
+    <section class="tab" id="tab-lab">
+      <div class="spacer"></div>
+      <div class="card home-card">
+        <div class="tagline" id="tagline">Your tiny 3D-printing shop. Fill orders, fix printers, survive rent, wow the expo.</div>
+        <div class="labline" id="labLine"></div>
+        <button class="big-go" id="btnGo">▶️ Start season<small id="goSub">~10 min · expo at the end</small></button>
+        <div class="records" id="records"></div>
+      </div>
+    </section>
+    <section class="tab hidden" id="tab-research">
+      <div class="maphead"><b>🔬 Research</b><span>Spend ⭐ Reputation. Kept between seasons.</span></div>
+      <div class="mapwrap" id="resMap"></div>
+    </section>
+    <section class="tab hidden" id="tab-labs">
+      <div class="maphead"><b>🗺️ Your labs</b><span id="labsSub">Move up to a bigger lab to prestige.</span></div>
+      <div class="mapwrap" id="labMap"></div>
+    </section>
+    <section class="tab hidden" id="tab-more">
+      <div class="card settings" id="helpCard"></div>
+    </section>
+    <nav class="tabs">
+      <button data-tab="lab" class="on">🏠<small>Lab</small></button>
+      <button data-tab="research">🔬<small>Research</small><i class="dot hidden" id="dotRes"></i></button>
+      <button data-tab="labs">🗺️<small>Labs</small><i class="dot hidden" id="dotLabs"></i></button>
+      <button data-tab="more">⚙️<small>More</small></button>
+    </nav>
+  </div>
+
+  <div id="sheet" class="modal hidden"><div class="sheet card" id="sheetCard"></div></div>
+  <div id="alert" class="modal hidden"><div class="alertcard" id="alertCard"></div></div>
+  <div id="summary" class="modal hidden"><div class="card" id="sumCard"></div></div>
+  <div id="toast"></div>
+</div>
+<script src="js/platform.js"></script>
+<script src="js/data.js"></script>
+<script src="js/core.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/render.js"></script>
+<script src="js/maps.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
