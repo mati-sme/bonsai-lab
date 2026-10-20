@@ -97,6 +97,7 @@ async function ensureJob(page, i) {
   // skip the rest of the tutorial
   await page.locator('#skipTut').tap(); await page.waitForTimeout(200);
   ok(await ev(page, () => window.__bl.meta.tut.done) && await page.isHidden('#skipTut'), 'tutorial skipped');
+  await ev(page, () => { window.__bl.run.noHazard = true; }); // only the issues this test raises itself, so the UI checks are deterministic
 
   // buy a second printer by tapping the empty slot
   await ev(page, () => { window.__bl.run.money += 500; });
@@ -152,13 +153,14 @@ async function ensureJob(page, i) {
   }
   // touch regression: "Later", then tapping the printer reopens the popup (the tap's ghost click must not close it again)
   await ev(page, () => window.__bl.closeAlert()); await ensureJob(page, 0);
-  await ev(page, () => window.__bl.C.forceProblem(window.__bl.run, 0, 'string')); await page.waitForTimeout(800);
+  await ev(page, () => { const r = window.__bl.run; r.printers[0].queue[0].work = 1e6; window.__bl.C.forceProblem(r, 0, 'string'); }); await page.waitForTimeout(800);
   if (await page.isVisible('#aLater')) await page.locator('#aLater').tap();
   await page.waitForTimeout(300);
   { const r0 = await printerRect(page, 0); await page.touchscreen.tap(r0.x + r0.w / 2, r0.y + r0.h * 0.55); }
   await page.waitForTimeout(500);
-  ok(await page.isVisible('#alert'), 'after "Later", tapping the printer reopens its issue popup (no ghost-click close)');
-  await ev(page, () => { const b = window.__bl; b.C.fix(b.run, 0, 'tune'); b.closeAlert(); });
+  const gdiag = await ev(page, () => { const B = window.__bl, p = B.run.printers[0]; return JSON.stringify({ alertPi: B.alertPi, prob: p.problem, st: p.status, busy: p.busy, dbg: B.dbg, sel: B.sel, open: ['sheet', 'alert', 'pauseMenu', 'summary'].filter((x) => !document.getElementById(x).classList.contains('hidden')) }); });
+  ok(await page.isVisible('#alert'), 'after "Later", tapping the printer reopens its issue popup (no ghost-click close)' + (await page.isVisible('#alert') ? '' : ' ' + gdiag));
+  await ev(page, () => { const b = window.__bl, r = b.run; b.C.fix(r, 0, 'tune'); b.closeAlert(); r.printers[0].queue[0].work = 40; });
   // alternative fixes that cost time instead of money, and the ignore path
   await ensureJob(page, 0); await ev(page, () => window.__bl.C.forceProblem(window.__bl.run, 0, 'clog'));
   const nozz = await ev(page, () => { const b = window.__bl; b.run.spares = 0; return b.C.problemOptions(b.run, 0).find((o) => o.id === 'spare').ok; });
@@ -222,6 +224,7 @@ async function ensureJob(page, i) {
   await page.click('#btnGo', { force: true }); await page.waitForTimeout(300);
 
   // play the rest of the season with the bot at high speed, rent gets paid
+  await ev(page, () => { window.__bl.run.noHazard = false; });
   await ev(page, () => { window.__bot = setInterval(() => { const b = window.__bl, r = b.run; if (!r || r.over) return; b.C.tick(r, 3); b.C.botThink(r); b.closeAlert(); }, 16); });
   await page.waitForFunction(() => window.__bl.run && window.__bl.run.t > 200, null, { timeout: 30000 });
   await ev(page, () => clearInterval(window.__bot));

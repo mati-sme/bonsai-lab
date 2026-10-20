@@ -8,6 +8,9 @@ let ac = null, master = null, sfxBus = null, musicBus = null, musicLP = null, de
 let sfxOn = true, musicOn = true, portalMute = false, mood = 'home', timer = 0;
 
 function ensure() {
+  // never touch WebAudio before the player has interacted (avoids Chrome's autoplay warnings in the console)
+  const ua = root.navigator && root.navigator.userActivation;
+  if (!ac && ua && !ua.hasBeenActive) return null;
   if (!ac) {
     const AC = root.AudioContext || root.webkitAudioContext;
     if (!AC) return null;

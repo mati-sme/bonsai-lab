@@ -360,7 +360,7 @@ function fix(run, pi, opt) {
 const BASE_HAZARD = 0.0095;
 function hazard(run, p, dt) {
   const o = p.queue[0];
-  if (!o) return;
+  if (!o || run.noHazard) return; // noHazard: test hook for deterministic UI tests
   const m = p.maint / 100;
   const wear = 0.45 + 2.3 * (1 - m) * (1 - m);
   let lam = BASE_HAZARD * wear;
