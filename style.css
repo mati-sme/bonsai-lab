@@ -128,7 +128,7 @@ body.short .goalbar .gtxt b { font-size: 13.5px; }
 .sheet { width: min(560px, 100%); max-height: 86%; overflow-y: auto; border-radius: 22px 22px 0 0; border-bottom: none; padding-bottom: calc(16px + env(safe-area-inset-bottom)); animation: sheetin .22s ease-out; }
 @keyframes sheetin { from { transform: translateY(40px); opacity: .4; } to { transform: none; opacity: 1; } }
 body.wide .modal { align-items: center; }
-body.wide .sheet { border-radius: 22px; border-bottom: 3px solid #5a3a22; max-height: 92%; }
+body.wide .sheet { width: min(760px, 94%); border-radius: 22px; border-bottom: 3px solid #5a3a22; max-height: 92%; }
 .sheet h2 { margin: 0 0 6px; font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
 .sheet h2 > .ic { width: 34px; height: 34px; }
 .sheet h2 .x { margin-left: auto; }

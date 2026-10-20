@@ -23,7 +23,7 @@ fs.mkdirSync(OUT, { recursive: true });
   ({ ctx, p } = await fresh());
   await p.evaluate(() => {
     const B = window.__bl, r = B.run; B.meta.tut.done = true; r.tut = false;
-    r.money += 1600; B.C.buyPrinter(r, 1, 'kestrel'); B.C.buyPrinter(r, 2, 'rainbow');
+    r.money += 1100; B.C.buyPrinter(r, 1, 'kestrel'); B.C.buyPrinter(r, 2, 'rainbow');
     for (const u of ['hotend', 'nozzle', 'drybox', 'table', 'banner']) { try { B.C.buyUpgrade(r, u); } catch (e) {} }
     for (let k = 0; k < 400; k++) { B.C.tick(r, 0.5); B.C.botThink(r, { noBuy: true }); for (const p of r.printers) if (p && p.problem) B.C.fix(r, r.printers.indexOf(p), B.C.problemOptions(r, r.printers.indexOf(p)).find((o) => o.ok).id); }
     while (r.inbox.length < 4) B.C.spawnOrder(r);
@@ -33,6 +33,7 @@ fs.mkdirSync(OUT, { recursive: true });
   await p.waitForTimeout(1200);
   await p.evaluate(() => { const B = window.__bl, r = B.run; for (const [i, pr] of r.printers.entries()) if (pr && !pr.queue.length) { const o = r.inbox.find((x) => B.C.canAssign(r, x, i).ok); if (o) B.C.assign(r, o.id, i); } window.__bl.closeAlert(); });
   await p.waitForTimeout(1500);
+  await p.evaluate(() => document.getElementById('goalPop').classList.add('hidden'));
   await shot(p, 2, 'busy-lab');
   // 3: "Hey, I have this issue!"
   await p.evaluate(() => { const B = window.__bl, r = B.run; const i = r.printers.findIndex((x) => x && x.queue.length && !x.problem); B.C.forceProblem(r, i >= 0 ? i : 1, 'adhesion'); });
@@ -41,6 +42,7 @@ fs.mkdirSync(OUT, { recursive: true });
   await p.evaluate(() => window.__bl.closeAlert());
   // 4: the upgrade map
   await p.click('#btnUps'); await p.waitForTimeout(800);
+  await p.evaluate(() => { const m = document.querySelector('#sheetCard .mapwrap'); if (m) m.scrollTop = m.scrollHeight; }); await p.waitForTimeout(200);
   await shot(p, 4, 'upgrades');
   await ctx.close();
   await b.close();
