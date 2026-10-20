@@ -2,11 +2,14 @@
  * World units are tiles: x runs along the back wall (down-right on screen), y comes toward the viewer (down-left), z is up. */
 (function (root) {
 'use strict';
-const BL = root.BL, D = BL.Data;
+const BL = root.BL, D = BL.Data, IC = BL.Icons, MD = BL.Models;
+const FONT = 'Fredoka, Trebuchet MS, sans-serif';
 
 let ctx, K = 40, OX = 0, OY = 0, now = 0;
 const hits = { printers: [], slots: [], recycler: null, cat: null, shelf: null };
-const floats = [];
+const floats = [], parts = [];
+let shakeAmt = 0, targets = {};
+let MS = 0.28; // model units -> world tiles (the cover art draws prints a bit bigger)
 
 /* ---------- colour helpers ---------- */
 function hex2rgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
@@ -125,7 +128,7 @@ function drawRoom(L, run, dayT) {
   onSideFace(0, 5.3, 3.05, () => {
     ctx.fillStyle = '#2b2b2e'; rrect(0, 0, 2.2, 0.66, 0.08); ctx.fill();
     ctx.fillStyle = D.PAPAYA; rrect(0.05, 0.05, 2.1, 0.56, 0.06); ctx.fill();
-    ctx.fillStyle = '#fff7ea'; ctx.font = `bold ${L.lab >= 1 ? 0.21 : 0.3}px Trebuchet MS, sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff7ea'; ctx.font = `700 ${L.lab >= 1 ? 0.22 : 0.32}px ${FONT}`; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
     ctx.fillText(L.lab >= 1 ? 'BONSAI WORKSHOP' : 'BONSAI LAB', 1.1, 0.34);
   });
   // calendar / rent sheet
@@ -195,55 +198,12 @@ function rectFrom(pts) {
   return { x: a, y: b, w: c - a, h: d - b };
 }
 
-/* ---------- printed objects ---------- */
-function objHeight(o) { return o.shape === 'flat' ? 0.12 : 0.22 + 0.4 * Math.min(1, o.work / 110); }
+/* ---------- printed objects: the same iso models as the order icons, sliced at the current layer ---------- */
+function objHeight(o) { return MD.height(o.tpl) * MS; }
 function drawObject(cx, cy, cz, o, frac, opts) {
   opts = opts || {};
-  const H = objHeight(o), L = 14;
-  const n = Math.max(0, Math.min(L, Math.ceil(frac * L)));
-  if (!n) return 0;
-  const lh = H / L;
-  const cols = o.colors && o.colors.length ? o.colors : ['#cccccc'];
-  const colAt = (u) => opts.mystery ? `hsl(${(u * 300 + now * 20) % 360},65%,62%)` : cols[Math.min(cols.length - 1, Math.floor(u * cols.length))];
-  const round = ['cyl', 'vase', 'pot', 'dome', 'fig', 'gear', 'ring'].includes(o.shape);
-  const radius = (u) => {
-    switch (o.shape) {
-      case 'vase': return 0.13 + 0.07 * Math.sin(Math.PI * u * 1.3);
-      case 'pot': return 0.17 + 0.06 * u;
-      case 'dome': return Math.max(0.05, 0.3 * Math.sqrt(1 - u * u));
-      case 'fig': return u < 0.55 ? 0.15 - 0.05 * u : u < 0.62 ? 0.07 : 0.11;
-      case 'gear': return 0.22;
-      case 'ring': return 0.24;
-      default: return 0.18;
-    }
-  };
-  for (let i = 0; i < n; i++) {
-    const u = i / L, z = cz + i * lh;
-    const c = colAt(u);
-    const partial = i === n - 1 && frac < 1;
-    if (round) {
-      const r = radius(u);
-      ellipse(cx, cy, z, r, shade(hexish(c), -0.25));
-      ellipse(cx, cy, z + lh, r, shade(hexish(c), -0.08));
-      if (i === n - 1) {
-        ellipse(cx, cy, z + lh, r, shade(hexish(c), 0.12), 'rgba(0,0,0,.25)');
-        if (o.shape === 'ring' || o.shape === 'vase' || o.shape === 'pot') ellipse(cx, cy, z + lh, r * 0.6, shade(hexish(c), -0.35));
-        if (o.shape === 'gear') for (let t = 0; t < 8; t++) { const a = t / 8 * Math.PI * 2 + 0.2; const p = P(cx + Math.cos(a) * r * 0.85, cy + Math.sin(a) * r * 0.85, z + lh); ctx.fillStyle = shade(hexish(c), -0.3); ctx.fillRect(p[0] - K * 0.03, p[1] - K * 0.02, K * 0.06, K * 0.04); }
-      }
-    } else {
-      let hw = 0.22, hd = 0.2;
-      if (o.shape === 'flat') { hw = 0.3; hd = 0.26; }
-      if (o.shape === 'wedge') { hd = 0.22 * (1 - u * 0.7); }
-      if (o.shape === 'box') { hw = 0.24; hd = 0.22; }
-      box(cx - hw, cy - hd, z, hw * 2, hd * 2, lh, hexish(c), { noTop: i !== n - 1, stroke: i === n - 1 ? 'rgba(0,0,0,.3)' : 'rgba(0,0,0,.12)' });
-    }
-    if (partial && opts.printing) {
-      // hot fresh line glinting on the newest layer
-      const p = P(cx, cy, z + lh);
-      ctx.fillStyle = 'rgba(255,240,200,.6)'; ctx.beginPath(); ctx.arc(p[0] + Math.sin(now * 9) * K * 0.15, p[1], K * 0.025, 0, 7); ctx.fill();
-    }
-  }
-  return n * lh;
+  const c = P(cx, cy, cz);
+  return MD.draw(ctx, o.tpl, o.colors, c[0], c[1], K * MS, frac, { mystery: opts.mystery, time: now, glow: !!opts.printing }) * MS;
 }
 const hexCache = {};
 function hexish(c) { // accept "#rrggbb" or css hsl/rgb by converting through a canvas once
@@ -260,7 +220,7 @@ function face(w, h, mood) {
   const bg = { idle: '#203040', print: '#173a2c', done: '#1f5a2a', problem: '#6a1a1a', fix: '#4a3a10', off: '#050505', sleep: '#1a1f28' }[mood] || '#203040';
   ctx.fillStyle = '#111'; rrect(-0.02, -0.02, w + 0.04, h + 0.04, 0.04); ctx.fill();
   ctx.fillStyle = bg; rrect(0, 0, w, h, 0.03); ctx.fill();
-  if (mood === 'off') { ctx.fillStyle = '#444'; ctx.font = 'bold 0.08px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('zzz', w / 2, h / 2); return; }
+  if (mood === 'off') { ctx.fillStyle = '#444'; ctx.font = `700 0.08px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('zzz', w / 2, h / 2); return; }
   const ex1 = w * 0.32, ex2 = w * 0.68, ey = h * 0.4, col = { problem: '#ffb0a0', done: '#c8ffb0', fix: '#ffe08a' }[mood] || '#9ff0ff';
   ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = h * 0.09; ctx.lineCap = 'round';
   const blink = (now % 3.7) < 0.12;
@@ -447,9 +407,7 @@ function drawRecycler(L, run) {
   poly([P(x + 0.8, y + 0.1, 0.7), P(x + 0.8, y + 0.7, 0.7), P(x + 0.7, y + 0.6, 0.95), P(x + 0.7, y + 0.2, 0.95)], '#4a7a4a', 'rgba(0,0,0,.3)');
   const scrap = run ? run.scrap : 0;
   if (scrap > 1) for (let k = 0; k < Math.min(10, 2 + scrap / 40); k++) { const q = P(x + 0.3 + (k * 37 % 5) * 0.08, y + 0.3 + (k * 13 % 4) * 0.06, 0.85 + Math.sin(now * 8 + k) * 0.02); ctx.fillStyle = D.COLORS[k % D.COLORS.length]; ctx.fillRect(q[0] - 2, q[1] - 2, 5, 4); }
-  onFrontFace(x + 0.12, y + 0.8, 0.6, () => {
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 0.3px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('♻', 0.33, 0.25);
-  });
+  onFrontFace(x + 0.12, y + 0.8, 0.6, () => { IC.draw(ctx, 'recycle', 0.33, 0.27, 0.36); });
   // output spool of mystery filament
   const mys = run ? run.fil.MYS : 0;
   if (mys > 1) spool(x + 0.95, y + 0.5, 0.25, 0.2, `hsl(${(now * 50) % 360},70%,65%)`, Math.min(1, mys / 1000));
@@ -482,7 +440,7 @@ function drawCat(L, run) {
   ctx.beginPath(); ctx.moveTo(s * 0.6, -s * 0.88); ctx.lineTo(s * 0.72, -s * 1.02); ctx.lineTo(s * 0.74, -s * 0.8); ctx.fill();
   ctx.fillStyle = '#2b2b2e'; ctx.beginPath(); ctx.arc(s * 0.6, -s * 0.72, s * 0.035, 0, 7); ctx.arc(s * 0.7, -s * 0.72, s * 0.035, 0, 7); ctx.fill();
   ctx.restore();
-  if (c.petted) { ctx.font = `${Math.round(K * 0.4)}px sans-serif`; ctx.textAlign = 'center'; ctx.fillText('❤️', p[0], p[1] - s * 1.3 - Math.sin(now * 4) * 3); }
+  if (c.petted) IC.draw(ctx, 'heart', p[0], p[1] - s * 1.45 - Math.sin(now * 4) * 3, K * 0.45);
   hits.cat = { x: p[0] - s, y: p[1] - s * 1.3, w: s * 2, h: s * 1.5 };
 }
 
@@ -499,46 +457,128 @@ function printerOverlay(p, run, info, i, sel, fs) {
   const bob = Math.sin(now * 4 + i) * 3;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (p.problem) {
-    const pr = D.PROBLEMS[p.problem.type];
-    const w = fs * 3.4, h = fs * 2;
-    const pulse = 1 + 0.06 * Math.sin(now * 8);
-    ctx.save(); ctx.translate(x, y + bob); ctx.scale(pulse, pulse);
+    const w = fs * 3.6, h = fs * 2.3;
+    const age = run.t - (p.problem.t || 0);
+    const pop = age < 0.5 ? 1 + 0.5 * Math.sin(Math.min(1, age / 0.5) * Math.PI) : 1 + 0.07 * Math.sin(now * 9);
+    ctx.save(); ctx.translate(x, y + bob); ctx.scale(pop, pop); ctx.rotate(Math.sin(now * 14) * 0.06);
     bubble(0, 0, w, h, '#fff4e6', '#e0473c');
-    ctx.font = `${Math.round(fs * 1.1)}px sans-serif`; ctx.fillStyle = '#222'; ctx.fillText(pr.icon, -w * 0.18, -h / 2);
-    ctx.font = `900 ${Math.round(fs * 1.25)}px Trebuchet MS, sans-serif`; ctx.fillStyle = '#e0473c'; ctx.fillText('!', w * 0.25, -h / 2 + 1);
+    IC.draw(ctx, D.PROBLEMS[p.problem.type].icon, -w * 0.17, -h / 2, h * 0.78);
+    ctx.font = `700 ${Math.round(fs * 1.5)}px ${FONT}`; ctx.fillStyle = '#e0473c'; ctx.fillText('!', w * 0.27, -h / 2 + 1);
     ctx.restore();
   } else if (p.plate) {
-    const w = fs * 4.6, h = fs * 1.9;
-    bubble(x, y + bob, w, h, '#eaffdf', '#3fae4a');
-    ctx.font = `900 ${Math.round(fs * 0.95)}px Trebuchet MS, sans-serif`; ctx.fillStyle = '#226b2a';
-    ctx.fillText(`✔ $${p.plate.pay}`, x, y + bob - h / 2);
+    const w = fs * 4.8, h = fs * 2.0;
+    const pulse = 1 + 0.05 * Math.sin(now * 6);
+    ctx.save(); ctx.translate(x, y + bob); ctx.scale(pulse, pulse);
+    bubble(0, 0, w, h, '#eaffdf', '#3fae4a');
+    IC.draw(ctx, 'check', -w * 0.28, -h / 2, h * 0.62);
+    ctx.font = `700 ${Math.round(fs * 1.05)}px ${FONT}`; ctx.fillStyle = '#226b2a'; ctx.fillText(`$${p.plate.pay}`, w * 0.1, -h / 2 + 1);
+    ctx.restore();
   } else if (p.busy > 0) {
-    const w = fs * 4.4, h = fs * 1.5;
+    const w = fs * 5.4, h = fs * 1.75;
     bubble(x, y, w, h, '#fff8de', '#c9a227');
-    ctx.fillStyle = '#e8d9a8'; ctx.fillRect(x - w / 2 + 6, y - h * 0.32, w - 12, h * 0.18);
-    ctx.fillStyle = '#c9a227'; ctx.fillRect(x - w / 2 + 6, y - h * 0.32, (w - 12) * (1 - p.busy / (p.busyMax || 1)), h * 0.18);
-    ctx.font = `${Math.round(fs * 0.62)}px Trebuchet MS, sans-serif`; ctx.fillStyle = '#5a4a10'; ctx.fillText(p.busyWhat, x, y - h * 0.62);
+    IC.draw(ctx, p.busyIcon || 'wrench', x - w / 2 + h * 0.5, y - h / 2, h * 0.7);
+    const bx = x - w / 2 + h * 0.95, bw = w - h * 1.15;
+    ctx.fillStyle = '#e8d9a8'; ctx.fillRect(bx, y - h * 0.3, bw, h * 0.16);
+    ctx.fillStyle = '#c9a227'; ctx.fillRect(bx, y - h * 0.3, bw * (1 - p.busy / (p.busyMax || 1)), h * 0.16);
+    ctx.font = `600 ${Math.round(fs * 0.62)}px ${FONT}`; ctx.fillStyle = '#5a4a10'; ctx.fillText(p.busyWhat, bx + bw / 2, y - h * 0.64);
   } else if (!p.queue.length && !sel) {
-    ctx.font = `${Math.round(fs * 0.8)}px Trebuchet MS, sans-serif`; ctx.fillStyle = 'rgba(80,40,20,.75)';
-    ctx.fillText('z z z', x + Math.sin(now) * 4, y + bob);
+    IC.draw(ctx, 'zzz', x + Math.sin(now) * 4, y + bob - fs * 0.3, fs * 1.4);
   }
-  // progress bar + queue pips under the printer
+  // progress bar + queue under the printer
   if (p.queue.length && !p.plate) {
     const o = p.queue[0];
-    const bw = Math.min(bb.w * 0.8, fs * 6), bx = x - bw / 2, by = bb.y + bb.h + 4;
+    const bw = Math.min(bb.w * 0.7, fs * 5.5), bx = x - bw / 2 + fs * 0.4, by = bb.y + bb.h + 6;
     ctx.fillStyle = 'rgba(40,20,10,.75)'; rrect(bx - 2, by - 2, bw + 4, fs * 0.6 + 4, 5); ctx.fill();
-    ctx.fillStyle = p.problem ? '#e0473c' : D.PAPAYA; rrect(bx, by, bw * Math.min(1, p.prog / o.work), fs * 0.6, 4); ctx.fill();
-    ctx.font = `${Math.round(fs * 0.75)}px sans-serif`; ctx.fillStyle = '#fff';
-    const late = run && run.t > o.deadline;
-    ctx.fillText(o.icon + (late ? '⏰' : ''), bx - fs * 0.6, by + fs * 0.3);
-    for (let k = 1; k < p.queue.length; k++) { ctx.fillText(p.queue[k].icon, bx + bw + fs * 0.25 + (k - 1) * fs * 0.9 + fs * 0.3, by + fs * 0.3); }
+    ctx.fillStyle = p.problem ? '#e0473c' : D.PAPAYA; rrect(bx, by, Math.max(6, bw * Math.min(1, p.prog / o.work)), fs * 0.6, 4); ctx.fill();
+    IC.draw(ctx, IC.orderIcon(o), bx - fs * 0.85, by + fs * 0.3, fs * 1.6);
+    if (run && run.t > o.deadline) IC.draw(ctx, 'clock', bx + bw + fs * 0.6, by + fs * 0.3, fs * 1.0);
+    for (let k = 1; k < p.queue.length; k++) IC.draw(ctx, IC.orderIcon(p.queue[k]), bx + bw * (k - 0.5) / 3 + fs * 0.2, by + fs * 1.55, fs * 1.25);
   }
   if (sel) {
-    ctx.font = `900 ${Math.round(fs * 0.7)}px Trebuchet MS, sans-serif`;
-    const t = sel.ok ? (sel.warn && sel.warn.length ? '⚠️ tap' : '👆 tap') : sel.short;
-    const w = ctx.measureText(t).width + 16;
-    ctx.fillStyle = sel.ok ? '#3fae4a' : 'rgba(150,50,40,.9)'; rrect(x - w / 2, bb.y + bb.h * 0.45, w, fs * 1.1, 8); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.fillText(t, x, bb.y + bb.h * 0.45 + fs * 0.57);
+    ctx.font = `700 ${Math.round(fs * 0.78)}px ${FONT}`;
+    const t = sel.ok ? 'Tap!' : sel.short;
+    const ico = sel.ok ? (sel.warn && sel.warn.length ? 'warn' : 'hand') : '';
+    const tw = ctx.measureText(t).width, w = tw + 18 + (ico ? fs * 1.2 : 0), h = fs * 1.3, yy = bb.y + bb.h * 0.42;
+    ctx.fillStyle = sel.ok ? '#3fae4a' : 'rgba(150,50,40,.92)'; rrect(x - w / 2, yy, w, h, 9); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 2; ctx.stroke();
+    if (ico) IC.draw(ctx, ico, x - w / 2 + 8 + fs * 0.5, yy + h / 2, fs * 1.05);
+    ctx.fillStyle = '#fff'; ctx.fillText(t, x + (ico ? fs * 0.55 : 0), yy + h / 2 + 1);
+  }
+}
+/* ---------- the expo booth corner (bought upgrades show up in the room) ---------- */
+function drawBooth(L, run) {
+  if (!run) return;
+  const u = run.ups;
+  if (u.lights) {
+    const n = 9;
+    ctx.strokeStyle = '#4a2c17'; ctx.lineWidth = Math.max(1, K * 0.02); ctx.beginPath();
+    for (let k = 0; k <= 40; k++) { const t = k / 40, q = P(0.3 + t * (L.RW - 0.6), 0, L.WH - 0.25 - Math.sin(t * Math.PI * 4) * 0.12); k ? ctx.lineTo(...q) : ctx.moveTo(...q); }
+    ctx.stroke();
+    for (let k = 0; k < n; k++) {
+      const t = (k + 0.5) / n, q = P(0.3 + t * (L.RW - 0.6), 0, L.WH - 0.3 - Math.sin(t * Math.PI * 4) * 0.12);
+      const c = ['#F7C52B', '#E0473C', '#5DB548', '#4A90D9', '#FF8000'][k % 5], on = 0.6 + 0.4 * Math.sin(now * 3 + k * 1.7);
+      ctx.fillStyle = c; ctx.globalAlpha = 0.25 * on; ctx.beginPath(); ctx.arc(q[0], q[1] + K * 0.06, K * 0.13, 0, 7); ctx.fill();
+      ctx.globalAlpha = 1; ctx.beginPath(); ctx.ellipse(q[0], q[1] + K * 0.06, K * 0.04, K * 0.055, 0, 0, 7); ctx.fill();
+    }
+  }
+  if (u.banner) onFrontFace(L.RW * 0.13, 0, 3.2, () => {
+    ctx.fillStyle = '#8a5a32'; ctx.fillRect(-0.05, -0.04, 1.2, 0.06);
+    ctx.fillStyle = D.PAPAYA; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(1.1, 0); ctx.lineTo(1.1, 0.75); ctx.lineTo(0.55, 0.6); ctx.lineTo(0, 0.75); ctx.closePath(); ctx.fill();
+    IC.draw(ctx, 'star', 0.55, 0.3, 0.42);
+  });
+  if (u.table) {
+    const x = L.RW - 2.0, y = 4.3;
+    for (const [lx, ly] of [[0.05, 0.05], [1.3, 0.05], [0.05, 0.75], [1.3, 0.75]]) box(x + lx, y + ly, 0, 0.08, 0.08, 0.55, '#6b4226');
+    box(x, y, 0.55, 1.45, 0.9, 0.06, D.PAPAYA, { top: '#ff9a33' });
+    box(x, y + 0.88, 0.25, 1.45, 0.02, 0.31, D.PAPAYA);
+    const c = P(x + 0.45, y + 0.45, 0.61); MD.draw(ctx, 'bonsai', null, c[0], c[1], K * 0.17, 1);
+    const c2 = P(x + 1.05, y + 0.4, 0.61); MD.draw(ctx, 'vase', ['#2FA8A0'], c2[0], c2[1], K * 0.13, 1);
+  }
+  if (u.showcase) {
+    const x = 0.25, y = 5.0;
+    box(x, y, 0, 0.9, 0.7, 0.35, '#8a5a32');
+    const g1 = 'rgba(200,235,255,.28)';
+    box(x + 0.05, y + 0.05, 0.35, 0.8, 0.6, 0.9, '#cfe8f0', { top: g1, left: g1, right: 'rgba(170,215,240,.32)', stroke: 'rgba(255,255,255,.7)' });
+    const c = P(x + 0.45, y + 0.35, 0.36); MD.draw(ctx, 'figure', ['#E9A91B', '#F7C52B', '#c98a10', '#2B2B2E'], c[0], c[1], K * 0.14, 1);
+    box(x, y, 1.25, 0.9, 0.7, 0.06, '#8a5a32');
+  }
+}
+/* ---------- juice: particles, shake, coins ---------- */
+function burst(kind, idx, opt) {
+  opt = opt || {};
+  const r = kind === 'printer' ? hits.printers[idx] : kind === 'slot' ? hits.slots[idx] : null;
+  const x = opt.x != null ? opt.x : r ? r.x + r.w / 2 : 0, y = opt.y != null ? opt.y : r ? r.y + r.h * 0.35 : 0;
+  const type = opt.type || 'spark';
+  const n = opt.n || (type === 'confetti' ? 40 : type === 'coin' ? Math.min(8, 2 + Math.floor((opt.value || 20) / 25)) : 14);
+  for (let k = 0; k < n; k++) {
+    const a = Math.random() * Math.PI * 2, sp = (type === 'smoke' ? 30 : 140) * (0.4 + Math.random());
+    parts.push({ type, x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - (type === 'smoke' ? 40 : 90), t: 0, life: type === 'coin' ? 0.9 + k * 0.06 : type === 'smoke' ? 1.4 : 0.9 + Math.random() * 0.5,
+      c: opt.colors ? opt.colors[k % opt.colors.length] : ['#F7C52B', '#FF8000', '#5DB548', '#4A90D9', '#E0473C', '#F06292'][k % 6], rot: Math.random() * 6, delay: type === 'coin' ? k * 0.05 : 0 });
+  }
+}
+function shake(a) { shakeAmt = Math.max(shakeAmt, a); }
+function setTargets(t) { targets = t || {}; }
+function drawParts(dt, fs) {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const q = parts[i];
+    if (q.delay > 0) { q.delay -= dt; continue; }
+    q.t += dt;
+    if (q.t > q.life) { parts.splice(i, 1); continue; }
+    const u = q.t / q.life;
+    if (q.type === 'coin' && targets.money) { // arc toward the money chip
+      const tx = targets.money[0], ty = targets.money[1];
+      const e = u * u * (3 - 2 * u);
+      const x = q.x + (tx - q.x) * e + Math.sin(u * Math.PI) * q.vx * 0.25, y = q.y + (ty - q.y) * e - Math.sin(u * Math.PI) * 60;
+      IC.draw(ctx, 'coin', x, y, fs * (1.25 - u * 0.4));
+      continue;
+    }
+    q.x += q.vx * dt; q.y += q.vy * dt; q.vy += (q.type === 'smoke' ? -10 : q.type === 'confetti' ? 160 : 320) * dt; q.vx *= 0.98; q.rot += dt * 8;
+    ctx.globalAlpha = Math.max(0, 1 - u);
+    if (q.type === 'smoke') { ctx.fillStyle = 'rgba(120,110,100,.6)'; ctx.beginPath(); ctx.arc(q.x, q.y, fs * (0.3 + u * 0.9), 0, 7); ctx.fill(); }
+    else if (q.type === 'confetti') { ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.rot); ctx.fillStyle = q.c; ctx.fillRect(-fs * 0.25, -fs * 0.12, fs * 0.5, fs * 0.24); ctx.restore(); }
+    else if (q.type === 'star') IC.draw(ctx, 'star', q.x, q.y, fs * 0.9);
+    else { ctx.fillStyle = q.c; ctx.beginPath(); const r = fs * 0.22 * (1 - u * 0.5); ctx.moveTo(q.x, q.y - r * 2); ctx.lineTo(q.x + r * 0.6, q.y); ctx.lineTo(q.x, q.y + r * 2); ctx.lineTo(q.x - r * 0.6, q.y); ctx.closePath(); ctx.fill(); }
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -554,6 +594,8 @@ function draw(c, st) {
   K = F.k;
   OX = vx + vw / 2 - ((F.minX + F.maxX) / 2) * K;
   OY = vy + (vh - (F.maxY - F.minY) * K) / 2 - F.minY * K + K * 0.3;
+  if (shakeAmt > 0.3) { OX += (Math.random() - 0.5) * shakeAmt; OY += (Math.random() - 0.5) * shakeAmt; }
+  shakeAmt *= Math.pow(0.02, st.dt || 0.016);
   // background
   const g = ctx.createLinearGradient(0, 0, 0, st.H);
   g.addColorStop(0, '#3a2618'); g.addColorStop(1, '#22150d');
@@ -561,6 +603,7 @@ function draw(c, st) {
   const dayT = run ? Math.min(1, run.t / run.len) : 0.15;
   drawRoom(L, run, dayT);
   drawShelf(L, run);
+  drawBooth(L, run);
   drawBench(L);
   const printers = run ? run.printers : D.LABS[st.lab || 0].start.map((t, i) => BL.Core.makePrinter(t, i)).concat([null, null, null]).slice(0, slots);
   const infos = [];
@@ -568,7 +611,13 @@ function draw(c, st) {
   for (let i = 0; i < slots; i++) {
     const p = printers[i];
     const sel = st.selection ? st.selection[i] : null;
-    if (p) infos[i] = drawPrinter(L, p, run, i, sel); else if (run) drawEmptySlot(L, i, sel); else drawEmptySlot(L, i);
+    if (p) {
+      if (run && p.problem) { // red alarm glow on the bench under a printer that needs help
+        const x0 = L.slotX[i] - 0.78, a = 0.35 + 0.25 * Math.sin(now * 8);
+        poly([P(x0 - 0.1, L.py - 0.1, L.benchZ + 0.004), P(x0 + 1.66, L.py - 0.1, L.benchZ + 0.004), P(x0 + 1.66, L.py + 1.6, L.benchZ + 0.004), P(x0 - 0.1, L.py + 1.6, L.benchZ + 0.004)], `rgba(255,70,50,${a})`, '#e0473c', 3);
+      }
+      infos[i] = drawPrinter(L, p, run, i, sel);
+    } else if (run) drawEmptySlot(L, i, sel); else drawEmptySlot(L, i);
   }
   drawRecycler(L, run);
   drawCat(L, run);
@@ -578,21 +627,24 @@ function draw(c, st) {
   ctx.fillStyle = vg; ctx.fillRect(0, 0, st.W, st.H);
   const fs = Math.max(13, Math.min(22, K * 0.42));
   if (run) for (let i = 0; i < slots; i++) if (printers[i]) printerOverlay(printers[i], run, infos[i], i, st.selection ? st.selection[i] : null, fs);
-  // floating texts
+  drawParts(st.dt || 0.016, fs);
+  // floating texts (optionally with a leading icon)
   for (let i = floats.length - 1; i >= 0; i--) {
     const f = floats[i]; f.t += st.dt;
     if (f.t > 1.8) { floats.splice(i, 1); continue; }
-    const a = Math.min(1, 2 - f.t * 1.1);
-    ctx.globalAlpha = Math.max(0, a); ctx.font = `900 ${Math.round(fs * 1.05)}px Trebuchet MS, sans-serif`; ctx.textAlign = 'center';
-    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(40,20,5,.85)'; ctx.strokeText(f.text, f.x, f.y - f.t * 40); ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, f.y - f.t * 40);
+    const a = Math.min(1, 2 - f.t * 1.1), sc = f.t < 0.15 ? 0.6 + f.t / 0.15 * 0.4 : 1;
+    ctx.globalAlpha = Math.max(0, a); ctx.font = `700 ${Math.round(fs * 1.1 * sc)}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const y = f.y - f.t * 40, tw = ctx.measureText(f.text).width, isz = fs * 1.4 * sc, x = f.x + (f.icon ? isz * 0.45 : 0);
+    if (f.icon) IC.draw(ctx, f.icon, x - tw / 2 - isz * 0.55, y, isz);
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(40,20,5,.85)'; ctx.strokeText(f.text, x, y); ctx.fillStyle = f.color; ctx.fillText(f.text, x, y);
     ctx.globalAlpha = 1;
   }
   return { K, fs };
 }
-function floatAt(kind, idx, text, color) {
+function floatAt(kind, idx, text, color, icon) {
   let r = kind === 'printer' ? hits.printers[idx] : kind === 'recycler' ? hits.recycler : kind === 'cat' ? hits.cat : null;
   if (!r) return;
-  floats.push({ x: r.x + r.w / 2, y: r.y + r.h * 0.3, text, color: color || '#ffd84a', t: 0 });
+  floats.push({ x: r.x + r.w / 2, y: r.y + r.h * 0.3, text, color: color || '#ffd84a', t: 0, icon });
 }
 function hitTest(x, y) {
   const inR = (r) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
@@ -617,5 +669,20 @@ function printerIcon(type, size) {
   return c;
 }
 
-BL.Render = { draw, hitTest, floatAt, printerIcon, hits };
+/* a big printer busy with a print, for the cover art: draws into any 2D context, centred on (cx, cy), `size` px tall-ish */
+function hero(g, type, cx, cy, size, st) {
+  st = st || {};
+  const save = { ctx, K, OX, OY, MS }, keep = hits.printers.slice(), keepNow = now;
+  ctx = g; K = size / 2.7; MS = st.ms || MS; now = st.time || 0;
+  OX = cx - (0.8 - 0.75) * K; OY = cy - (0.8 + 0.75) * K * 0.5 + 1.0 * K;
+  const p = BL.Core.makePrinter(type, 0);
+  if (st.tpl) {
+    const o = { id: 1, tpl: st.tpl, colors: st.colors || MD.BASES[st.tpl], mat: 'PLA', nc: 1, q: 3, work: 100, g: 40, pay: 1 };
+    if (st.frac >= 1) p.plate = { order: o }; else { p.queue = [o]; p.status = 'printing'; p.prog = (st.frac || 0.5) * 100; }
+  }
+  drawPrinter({ slotX: [0.8], py: 0, benchZ: 0 }, p, null, 0, null);
+  ({ ctx, K, OX, OY, MS } = save); hits.printers = keep; now = keepNow;
+}
+
+BL.Render = { draw, hitTest, floatAt, printerIcon, hero, hits, burst, shake, setTargets, get fs() { return Math.max(13, Math.min(22, K * 0.42)); } };
 })(window);

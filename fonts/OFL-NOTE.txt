@@ -1,0 +1,2 @@
+fredoka.woff is a Latin subset of Fredoka (variable, wdth/wght) by Milena Brandão and Hafontia,
+licensed under the SIL Open Font License 1.1 (https://openfontlicense.org). Source: Google Fonts.

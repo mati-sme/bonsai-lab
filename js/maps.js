@@ -33,13 +33,17 @@ function renderMap(wrap, opts) {
       svg.appendChild(path);
     }
   }
+  for (const lb of opts.labels || []) {
+    const [x, y] = pos(lb);
+    const d = el('div', 'map-label', lb.text); d.style.left = x + 'px'; d.style.top = y + 'px'; inner.appendChild(d);
+  }
   for (const n of N) {
     const st = opts.state(n.id);
     const b = el('button', `node ${st}${n.root ? ' root' : ''}${n.small ? ' small' : ''}`);
     b.dataset.id = n.id;
     const [x, y] = pos(n);
     b.style.left = x + 'px'; b.style.top = y + 'px';
-    b.innerHTML = `<span class="ni">${n.icon}</span><span class="nn">${n.name}</span>${opts.badge ? `<span class="nb">${opts.badge(n.id, st)}</span>` : ''}`;
+    b.innerHTML = `${root.BL.Icons.html(n.icon, 'ni')}<span class="nn">${n.name}</span>${opts.badge ? `<span class="nb">${opts.badge(n.id, st)}</span>` : ''}`;
     b.addEventListener('click', () => opts.onSelect(n.id));
     inner.appendChild(b);
   }

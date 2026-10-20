@@ -26,13 +26,16 @@ const ev = (run, e) => { run.events.push(e); if (run.events.length > 60) run.eve
 /* ---------- meta (persistent) ---------- */
 function newMeta() {
   return { v: 1, rep: 0, lifetimeRep: 0, labRep: 0, trophies: 0, research: { lab: true }, perks: {}, lab: 0, seasons: 0,
-    best: { rep: 0, money: 0, orders: 0, stars: 0 }, history: [], settings: { mute: false }, run: null, tut: {} };
+    best: { rep: 0, money: 0, orders: 0, stars: 0 }, history: [], settings: { music: true, sfx: true }, run: null, tut: {}, goal: 0 };
 }
 function fixMeta(m) {
   const d = newMeta();
   if (!m || typeof m !== 'object') return d;
   for (const k in d) if (m[k] === undefined) m[k] = d[k];
   m.research.lab = true;
+  if (m.settings.mute !== undefined) { m.settings.music = m.settings.sfx = !m.settings.mute; delete m.settings.mute; }
+  if (m.settings.music === undefined) m.settings.music = true;
+  if (m.settings.sfx === undefined) m.settings.sfx = true;
   return m;
 }
 
@@ -41,7 +44,8 @@ function makePrinter(type, idx) {
   return { type, idx, queue: [], prog: 0, used: 0, status: 'idle', maint: 100, problem: null, busy: 0, busyMax: 0, busyWhat: '',
     after: '', glue: 0, ups: false, pen: 0, useMys: false, plate: null, jobs: 0 };
 }
-function newRun(meta, seed) {
+function newRun(meta, seed, opts) {
+  opts = opts || {};
   const lab = D.LABS[meta.lab];
   const res = Object.assign({}, meta.research);
   const run = {
@@ -52,14 +56,18 @@ function newRun(meta, seed) {
     printers: [], inbox: [], nextId: 1, nextOrder: 1.5,
     fil: { PLA: 2000, PETG: 1000, TPU: 0, ABS: 0, MYS: 0 }, scrap: 0, spares: res.spares ? 2 : 0, deliveries: [],
     rentIdx: 0, rentDue: D.RENT.every, grace: 0, power: 0,
-    stats: { done: 0, late: 0, failed: 0, lost: 0, dropped: 0, starsSum: 0, goodStars: 0, earned: 0, spent: 0, rentPaid: 0, problems: 0, fixed: 0, petted: 0, byType: {} },
-    events: [], over: false, reason: '', problemsSeen: 0, firstIssueAt: 40,
+    stats: { done: 0, late: 0, failed: 0, lost: 0, dropped: 0, starsSum: 0, goodStars: 0, earned: 0, spent: 0, rentPaid: 0, problems: 0, fixed: 0, petted: 0,
+      maxStars: 0, multi: 0, serviced: 0, goalCash: 0, byType: {} },
+    events: [], over: false, reason: '', problemsSeen: 0, firstIssueAt: 40, tut: !!opts.tutorial,
     cat: { next: meta.perks.catbed ? 25 : 55, on: false, p: 0, dir: 1, lane: 0, petted: false },
   };
   if (res.supplier) for (const m of D.MAT_ORDER) run.fil[m] += 1000;
   for (let i = 0; i < run.slots; i++) run.printers.push(null);
   lab.start.forEach((t, i) => { run.printers[i] = makePrinter(t, i); });
-  for (let i = 0; i < 3; i++) spawnOrder(run, true);
+  if (run.tut) { // the very first season: a quick, cheap first job and a spare nozzle for the first (scripted) clog
+    spawnOrder(run, true, { tpl: 'clips', work: 14 }); spawnOrder(run, true, { tpl: 'stand', work: 30 }); spawnOrder(run, true, { tpl: 'keys' });
+    run.spares = Math.max(run.spares, 1); run.firstIssueAt = 1e9; run.nextOrder = 20;
+  } else for (let i = 0; i < 3; i++) spawnOrder(run, true);
   return run;
 }
 
@@ -97,26 +105,27 @@ function canAssign(run, o, pi) {
   const warn = [];
   if (o.mat === 'ABS' && !enclosed(run, p)) warn.push('ABS warps on an open frame');
   const es = expectedStars(run, p, o);
-  if (es < o.q) warn.push(`Quality ${es}★ < ${o.q}★ wanted`);
+  if (es < o.q) warn.push(`Quality ${es} stars, customer wants ${o.q}`);
   return { ok: true, warn, stars: es };
 }
 
 /* ---------- orders ---------- */
-function spawnOrder(run, early) {
+function spawnOrder(run, early, force) {
   if (run.inbox.length >= inboxMax(run)) return null;
   const hasMulti = run.printers.some((p) => p && T(p).colors > 1);
   let pool = D.ORDERS.filter((o) => (o.lab || 0) <= run.lab);
   if (early || run.t < 45) pool = pool.filter((o) => o.nc === 1 && (o.mat === 'PLA' || o.mat === 'PETG') && o.work < 70);
-  const tpl = pickW(run, pool, (o) => o.w * (o.nc > 1 && !hasMulti ? 0.45 : 1) * ((o.lab || 0) > 0 ? 1.6 : 1));
-  const j = 0.9 + rnd(run) * 0.25;
+  const tpl = force ? D.ORDERS.find((o) => o.id === force.tpl) : pickW(run, pool, (o) => o.w * (o.nc > 1 && !hasMulti ? 0.45 : 1) * ((o.lab || 0) > 0 ? 1.6 : 1));
+  const j = force && force.work ? force.work / tpl.work : 0.9 + rnd(run) * 0.25;
   const cols = D.COLORS.slice();
   const colors = [];
   if (tpl.id === 'racecar') colors.push(D.PAPAYA);
   while (colors.length < tpl.nc) { const c = cols.splice(Math.floor(rnd(run) * cols.length), 1)[0]; if (!colors.includes(c)) colors.push(c); }
   const work = Math.round(tpl.work * j);
+  const pj = force && force.work ? Math.max(0.9, j) : j;
   const o = {
     id: run.nextId++, tpl: tpl.id, name: tpl.name, icon: tpl.icon, mat: tpl.mat, nc: tpl.nc, q: tpl.q, any: !!tpl.any, shape: tpl.shape,
-    work, g: Math.round(tpl.g * j), pay: Math.round(tpl.pay * 1.3 * j * payMul(run)),
+    work, g: Math.round(tpl.g * j), pay: Math.round(tpl.pay * 1.3 * pj * payMul(run)),
     colors, arrive: run.t, deadline: Math.round(run.t + work * 2 + 70), expires: run.t + patience(run),
   };
   run.inbox.push(o);
@@ -176,11 +185,11 @@ function service(run, pi) {
   const cost = up(run, 'kit') ? 0 : 15;
   if (run.money < cost) return { ok: false, msg: 'Not enough money' };
   run.money -= cost; run.stats.spent += cost;
-  setBusy(run, p, fixTime(run, up(run, 'kit') ? 4 : 8), 'Servicing 🧽', 'service');
+  setBusy(run, p, fixTime(run, up(run, 'kit') ? 4 : 8), 'Servicing', 'service', 'sponge');
   return { ok: true };
 }
-function setBusy(run, p, secs, what, after) {
-  p.busy = p.busyMax = secs; p.busyWhat = what; p.after = after || '';
+function setBusy(run, p, secs, what, after, icon) {
+  p.busy = p.busyMax = secs; p.busyWhat = what; p.busyIcon = icon || 'wrench'; p.after = after || '';
   p.status = 'fixing';
 }
 function buySpool(run, mat) {
@@ -201,13 +210,16 @@ function upgradeState(run, id) {
   const u = D.UPGRADES.find((x) => x.id === id);
   if (run.ups[id]) return 'owned';
   if (u.req && !run.ups[u.req]) return 'locked';
-  return run.money >= u.cost ? 'buy' : 'poor';
+  return run.money >= upCost(run, u) ? 'buy' : 'poor';
 }
+/* booth items cost more in bigger labs (the expo crowd is pickier) */
+function upCost(run, u) { if (typeof u === 'string') u = D.UPGRADES.find((x) => x.id === u); return u.booth && run.lab > 0 ? Math.round(u.cost * 2.5) : u.cost; }
 function buyUpgrade(run, id) {
   const u = D.UPGRADES.find((x) => x.id === id);
   const st = upgradeState(run, id);
   if (st !== 'buy') return { ok: false, msg: st === 'poor' ? 'Not enough money' : 'Locked' };
-  run.money -= u.cost; run.stats.spent += u.cost; run.ups[id] = true;
+  const c = upCost(run, u);
+  run.money -= c; run.stats.spent += c; run.ups[id] = true;
   ev(run, { k: 'upgrade', id });
   return { ok: true };
 }
@@ -270,40 +282,40 @@ function problemOptions(run, pi) {
   const f = (s) => Math.round(fixTime(run, s));
   switch (pr.type) {
     case 'clog': return [
-      { id: 'spare', icon: '🔩', label: 'Swap in a spare nozzle', sub: `${run.spares} in stock · ${f(4)} s`, ok: run.spares > 0 },
-      { id: 'order', icon: '🚚', label: 'Order a nozzle', sub: `$15 · arrives in 30 s`, ok: m >= 15, cost: 15 },
-      { id: 'coldpull', icon: '🧊', label: 'Try a cold pull', sub: `free · ${f(18)} s · works 60%`, ok: true },
+      { id: 'spare', icon: 'nozzle', label: 'Swap in a spare nozzle', sub: `${run.spares} in stock · ${f(4)} s`, ok: run.spares > 0 },
+      { id: 'order', icon: 'truck', label: 'Order a nozzle', sub: `$15 · arrives in 30 s`, ok: m >= 15, cost: 15 },
+      { id: 'coldpull', icon: 'ice', label: 'Try a cold pull', sub: `free · ${f(18)} s · works 60%`, ok: true },
     ];
     case 'axis': return [
-      { id: 'repair', icon: '🛠️', label: 'Repair it yourself', sub: `$40 · ${f(25)} s downtime`, ok: m >= 40, cost: 40 },
-      { id: 'express', icon: '🧑‍🔧', label: 'Call the express tech', sub: `$90 · ${f(6)} s`, ok: m >= 90, cost: 90 },
+      { id: 'repair', icon: 'tools', label: 'Repair it yourself', sub: `$40 · ${f(25)} s downtime`, ok: m >= 40, cost: 40 },
+      { id: 'express', icon: 'hardhat', label: 'Call the express tech', sub: `$90 · ${f(6)} s`, ok: m >= 90, cost: 90 },
     ];
     case 'adhesion': return [
-      { id: 'clean', icon: '🧽', label: 'Clean the bed & restart', sub: `free · ${f(8)} s`, ok: true },
-      { id: 'glue', icon: '🧴', label: 'Clean + glue stick', sub: `$6 · ${f(3)} s · sticky for 3 prints`, ok: m >= 6, cost: 6 },
-      { id: 'drop', icon: '🗑️', label: 'Give up the order', sub: '−rating', ok: true },
+      { id: 'clean', icon: 'sponge', label: 'Clean the bed and restart', sub: `free · ${f(8)} s`, ok: true },
+      { id: 'glue', icon: 'glue', label: 'Clean + glue stick', sub: `$6 · ${f(3)} s · sticky for 3 prints`, ok: m >= 6, cost: 6 },
+      { id: 'drop', icon: 'trash', label: 'Give up the order', sub: '-rating', ok: true },
     ];
     case 'string': return [
-      { id: 'dry', icon: '♨️', label: 'Dry the filament', sub: `free · pause ${f(20)} s`, ok: true },
-      { id: 'tune', icon: '🎚️', label: 'Tune retraction', sub: `$12 · ${f(3)} s`, ok: m >= 12, cost: 12 },
-      { id: 'ignore', icon: '🤷', label: 'Ignore it', sub: '−1.5★ on this print', ok: true },
+      { id: 'dry', icon: 'dryer', label: 'Dry the filament', sub: `free · pause ${f(20)} s`, ok: true },
+      { id: 'tune', icon: 'slider', label: 'Tune retraction', sub: `$12 · ${f(3)} s`, ok: m >= 12, cost: 12 },
+      { id: 'ignore', icon: 'shrug', label: 'Ignore it', sub: '-1.5 stars on this print', ok: true },
     ];
     case 'warp': return [
-      { id: 'dry', icon: '🧱', label: 'Add a draft shield', sub: `free · pause ${f(20)} s`, ok: true },
-      { id: 'tune', icon: '🖌️', label: 'Brim + hotter bed', sub: `$12 · ${f(3)} s`, ok: m >= 12, cost: 12 },
-      { id: 'ignore', icon: '🤷', label: 'Ignore it', sub: '−1.5★ on this print', ok: true },
+      { id: 'dry', icon: 'cube', label: 'Add a draft shield', sub: `free · pause ${f(20)} s`, ok: true },
+      { id: 'tune', icon: 'flame', label: 'Brim + hotter bed', sub: `$12 · ${f(3)} s`, ok: m >= 12, cost: 12 },
+      { id: 'ignore', icon: 'shrug', label: 'Ignore it', sub: '-1.5 stars on this print', ok: true },
     ];
     case 'power': return [
-      { id: 'reboot', icon: '🔁', label: 'Reconnect & resume', sub: rs(run, 'ups') ? `free · ${f(4)} s · no loss` : `free · ${f(12)} s · lose 15% progress`, ok: true },
-      { id: 'ups', icon: '🔋', label: 'Install a UPS', sub: `$60 · ${f(3)} s · never again here`, ok: m >= 60, cost: 60 },
+      { id: 'reboot', icon: 'reboot', label: 'Reconnect and resume', sub: rs(run, 'ups') ? `free · ${f(4)} s · no loss` : `free · ${f(12)} s · lose 15% progress`, ok: true },
+      { id: 'ups', icon: 'battery', label: 'Install a UPS', sub: `$60 · ${f(3)} s · never again here`, ok: m >= 60, cost: 60 },
     ];
     case 'runout': {
       const mat = pr.mat, c = spoolPrice(run, mat);
       const left = o ? Math.max(0, o.g * (1 - p.prog / o.work)) : 0;
       return [
-        { id: 'buy', icon: '🧵', label: `Buy a ${mat} spool`, sub: `$${c} · resume now`, ok: m >= c, cost: c },
-        { id: 'mystery', icon: '🌈', label: 'Use mystery filament', sub: mat === 'PLA' ? `${Math.round(run.fil.MYS)} g · −0.5★` : 'PLA jobs only', ok: mat === 'PLA' && run.fil.MYS >= left },
-        { id: 'drop', icon: '🗑️', label: 'Cancel the order', sub: '−rating', ok: true },
+        { id: 'buy', icon: 'spool|' + D.MATS[mat].color, label: `Buy a ${mat} spool`, sub: `$${c} · resume now`, ok: m >= c, cost: c },
+        { id: 'mystery', icon: 'myspool', label: 'Use mystery filament', sub: mat === 'PLA' ? `${Math.round(run.fil.MYS)} g · -0.5 star` : 'PLA jobs only', ok: mat === 'PLA' && run.fil.MYS >= left },
+        { id: 'drop', icon: 'trash', label: 'Cancel the order', sub: '-rating', ok: true },
       ];
     }
   }
@@ -319,18 +331,18 @@ function fix(run, pi, opt) {
   const f = (s) => fixTime(run, s);
   const done = () => { p.problem = null; run.stats.fixed++; };
   switch (opt) {
-    case 'spare': run.spares--; done(); setBusy(run, p, f(4), 'Swapping nozzle 🔩'); break;
-    case 'order': done(); setBusy(run, p, 30, 'Nozzle on the way 🚚'); break;
-    case 'coldpull': done(); setBusy(run, p, f(18), 'Cold pull 🧊', 'coldpull'); break;
-    case 'repair': done(); setBusy(run, p, f(25), 'Fixing the belt 🛠️', 'axis'); break;
-    case 'express': done(); setBusy(run, p, f(6), 'Tech is on it 🧑‍🔧', 'axis'); break;
-    case 'clean': done(); p.prog = p.prog; setBusy(run, p, f(8), 'Cleaning bed 🧽'); break;
-    case 'glue': done(); p.glue = 3; setBusy(run, p, f(3), 'Glue stick 🧴'); break;
-    case 'dry': done(); p.stringDone = true; setBusy(run, p, f(20), type === 'warp' ? 'Draft shield 🧱' : 'Drying filament ♨️'); break;
-    case 'tune': done(); p.stringDone = true; setBusy(run, p, f(3), 'Tuning 🎚️'); break;
+    case 'spare': run.spares--; done(); setBusy(run, p, f(4), 'Swapping nozzle', '', 'nozzle'); break;
+    case 'order': done(); setBusy(run, p, 30, 'Nozzle on the way', '', 'truck'); break;
+    case 'coldpull': done(); setBusy(run, p, f(18), 'Cold pull', 'coldpull', 'ice'); break;
+    case 'repair': done(); setBusy(run, p, f(25), 'Fixing the belt', 'axis', 'tools'); break;
+    case 'express': done(); setBusy(run, p, f(6), 'Tech is on it', 'axis', 'hardhat'); break;
+    case 'clean': done(); p.prog = p.prog; setBusy(run, p, f(8), 'Cleaning bed', '', 'sponge'); break;
+    case 'glue': done(); p.glue = 3; setBusy(run, p, f(3), 'Glue stick', '', 'glue'); break;
+    case 'dry': done(); p.stringDone = true; setBusy(run, p, f(20), type === 'warp' ? 'Draft shield' : 'Drying filament', '', type === 'warp' ? 'cube' : 'dryer'); break;
+    case 'tune': done(); p.stringDone = true; setBusy(run, p, f(3), 'Tuning', '', 'slider'); break;
     case 'ignore': p.problem = null; p.pen += 1.5; p.stringDone = true; break;
-    case 'reboot': done(); if (!rs(run, 'ups')) { const o2 = p.queue[0]; const back = o2 ? Math.min(p.prog, o2.work * 0.15) : 0; p.prog -= back; } setBusy(run, p, f(rs(run, 'ups') ? 4 : 12), 'Rebooting 🔁'); break;
-    case 'ups': done(); p.ups = true; setBusy(run, p, f(3), 'Installing UPS 🔋'); break;
+    case 'reboot': done(); if (!rs(run, 'ups')) { const o2 = p.queue[0]; const back = o2 ? Math.min(p.prog, o2.work * 0.15) : 0; p.prog -= back; } setBusy(run, p, f(rs(run, 'ups') ? 4 : 12), 'Rebooting', '', 'reboot'); break;
+    case 'ups': done(); p.ups = true; setBusy(run, p, f(3), 'Installing UPS', '', 'battery'); break;
     case 'buy': run.fil[p.problem.mat] += 1000; done(); p.status = 'printing'; break;
     case 'mystery': p.useMys = true; p.pen += 0.5; done(); p.status = 'printing'; break;
     case 'drop': {
@@ -353,6 +365,10 @@ function hazard(run, p, dt) {
   const wear = 0.45 + 2.3 * (1 - m) * (1 - m);
   let lam = BASE_HAZARD * wear;
   if (run.problemsSeen === 0 && run.t > run.firstIssueAt) lam = 1; // make sure everyone meets the mechanic early
+  if (run.tut && run.problemsSeen === 0) { // first season ever: one friendly, scripted clog on the second print
+    if (run.stats.done + run.printers.filter((q) => q && q.plate).length >= 1 && p.prog > o.work * 0.4) raise(run, p, 'clog');
+    return;
+  }
   if (rnd(run) > lam * dt) return;
   const mat = D.MATS[p.useMys || (o.any && o.mat === 'PLA' && run.fil.MYS > 0) ? 'MYS' : o.mat];
   const enc = enclosed(run, p);
@@ -384,6 +400,7 @@ function finishPrint(run, p) {
   if (late) pay *= 0.7;
   pay = Math.round(pay);
   run.stats.done++; run.stats.starsSum += stars; run.stats.goodStars += Math.max(0, stars - 2.5);
+  run.stats.maxStars = Math.max(run.stats.maxStars || 0, stars); if (o.nc > 1) run.stats.multi = (run.stats.multi || 0) + 1;
   if (late) run.stats.late++;
   p.plate = { order: o, stars, pay, late, low, tip };
   p.status = 'done'; p.jobs++;
@@ -398,7 +415,7 @@ function stepPrinter(run, p, dt) {
     if (p.busy <= 0) {
       p.busy = 0;
       const after = p.after; p.after = '';
-      if (after === 'service') { p.maint = 100; ev(run, { k: 'serviced', pi: p.idx }); }
+      if (after === 'service') { p.maint = 100; run.stats.serviced = (run.stats.serviced || 0) + 1; ev(run, { k: 'serviced', pi: p.idx }); }
       if (after === 'axis') p.maint = Math.max(p.maint, 70);
       if (after === 'coldpull' && rnd(run) > 0.6) {
         p.status = p.queue.length ? 'printing' : 'idle';
@@ -492,12 +509,59 @@ function endRun(run, reason) {
   for (const p of run.printers) if (p && p.plate) collect(run, p.idx);
   const s = run.stats;
   const avg = s.done ? s.starsSum / s.done : 0;
-  let rep = s.done * 0.25 + s.goodStars * 0.4 + Math.max(0, run.money) / 200 + (run.rating - 3) * 3;
-  if (reason === 'expo') rep += 5; else rep *= 0.5;
-  rep = Math.max(0, rep) * run.repMul * (rs(run, 'expo') ? 1.5 : 1);
-  run.result = { reason, rep: Math.round(rep), done: s.done, avg: Math.round(avg * 10) / 10, money: Math.round(run.money), rating: Math.round(run.rating * 10) / 10,
+  const booth = reason === 'expo' ? D.UPGRADES.reduce((a, u) => a + (u.booth && run.ups[u.id] ? u.booth : 0), 0) : 0;
+  let rep = s.done * REP.done + s.goodStars * REP.stars + Math.max(0, run.money) / REP.money + (run.rating - 3) * REP.rating;
+  if (reason === 'expo') rep += REP.expo + booth; else rep *= 0.5;
+  rep = Math.max(0, rep) * run.repMul * (rs(run, 'expo') ? 1.25 : 1);
+  run.result = { reason, rep: Math.round(rep), booth, done: s.done, avg: Math.round(avg * 10) / 10, money: Math.round(run.money), rating: Math.round(run.rating * 10) / 10,
     late: s.late, failed: s.failed, lost: s.lost, problems: s.problems, fixed: s.fixed, rentPaid: s.rentPaid, earned: s.earned };
   ev(run, { k: 'end', reason });
+}
+
+const REP = { done: 0.12, stars: 0.12, money: 500, rating: 2, expo: 3 };
+
+/* ---------- goal chain ---------- */
+function goalCheck(meta, run, id) { // -> [have, need]
+  const s = run ? run.stats : null, R = meta.research;
+  switch (id) {
+    case 'deliver1': return [s ? s.done : 0, 1];
+    case 'fix1': return [s ? s.fixed : 0, 1];
+    case 'earn150': return [s ? Math.floor(s.earned) : 0, 150];
+    case 'printer2': return [run ? run.printers.filter(Boolean).length : 0, 2];
+    case 'upgrade1': return [run ? Object.keys(run.ups).length - 1 : 0, 1];
+    case 'rent1': return [s && s.rentPaid > 0 ? 1 : 0, 1];
+    case 'stars4': return [s && s.maxStars >= 4 ? 1 : 0, 1];
+    case 'deliver10': return [s ? s.done : 0, 10];
+    case 'expo1': return [meta.history.some((h) => h.reason === 'expo') ? 1 : 0, 1];
+    case 'research1': return [Object.keys(R).length - 1, 1];
+    case 'multi1': return [s ? s.multi || 0 : 0, 1];
+    case 'booth1': return [run && run.ups.table ? 1 : 0, 1];
+    case 'service1': return [s ? s.serviced || 0 : 0, 1];
+    case 'deliver25': return [s ? s.done : 0, 25];
+    case 'rep20': return [meta.best.rep >= 20 ? 1 : 0, 1];
+    case 'branch': return [R.supplier || R.sched || R.expo || meta.lab > 0 ? 1 : 0, 1];
+    case 'showcase': return [run && run.ups.showcase ? 1 : 0, 1];
+    case 'workshop': return [meta.lab >= 1 ? 1 : 0, 1];
+  }
+  return [0, 1];
+}
+function currentGoal(meta, run) {
+  const gl = D.GOALS[meta.goal || 0];
+  if (!gl) return null;
+  const [have, need] = goalCheck(meta, run, gl.id);
+  return { goal: gl, n: (meta.goal || 0) + 1, of: D.GOALS.length, have: Math.min(have, need), need, done: have >= need };
+}
+/* complete the current goal if it is met (one per call, so the UI can celebrate each one) */
+function checkGoals(meta, run) {
+  const cg = currentGoal(meta, run);
+  if (!cg || !cg.done) return null;
+  const rw = cg.goal.reward;
+  if (rw.money && !(run && !run.over)) return null; // cash rewards only land during a season
+  meta.goal = (meta.goal || 0) + 1;
+  if (rw.money) { run.money += rw.money; run.stats.goalCash += rw.money; }
+  if (rw.rep) { meta.rep += rw.rep; meta.lifetimeRep += rw.rep; meta.labRep += rw.rep; }
+  if (run && !run.over) ev(run, { k: 'goal', id: cg.goal.id });
+  return cg.goal;
 }
 
 /* ---------- meta actions ---------- */
@@ -591,13 +655,15 @@ function botThink(run, opts) {
     const first = run.printers.filter(Boolean).length === 1 ? 'kestrel' : want;
     if (run.money > D.PRINTERS[first].cost + reserve) buyPrinter(run, empty, first);
   } else {
-    for (const u of ['hardened', 'hotend', 'board', 'pei', 'drybox', 'hotend2', 'kit', 'enclose', 'flyer', 'calib']) {
-      if (upgradeState(run, u) === 'buy' && run.money > D.UPGRADES.find((x) => x.id === u).cost + reserve) { buyUpgrade(run, u); break; }
+    const list = ['hardened', 'hotend', 'board', 'pei', 'drybox', 'hotend2', 'kit', 'enclose', 'flyer', 'calib'];
+    if (run.t > 300 || list.every((u) => run.ups[u])) list.push('table', 'banner', 'lights', 'showcase');
+    for (const u of list) {
+      if (upgradeState(run, u) === 'buy' && run.money > upCost(run, u) + reserve) { buyUpgrade(run, u); break; }
     }
   }
 }
 
-BL.Core = { rnd, clamp, newMeta, fixMeta, newRun, makePrinter, speedOf, enclosed, qualityOf, maxQueue, inboxMax, payMul, spoolPrice, nextRent,
+BL.Core = { upCost, REP, goalCheck, currentGoal, checkGoals, rnd, clamp, newMeta, fixMeta, newRun, makePrinter, speedOf, enclosed, qualityOf, maxQueue, inboxMax, payMul, spoolPrice, nextRent,
   expectedStars, canAssign, spawnOrder, assign, unqueue, collect, service, buySpool, buyNozzle, upgradeState, buyUpgrade, buyPrinter, petCat,
   problemOptions, fix, forceProblem, tick, endRun, applyResult, researchState, buyResearch, labState, moveLab, trophiesFor, buyPerk, botThink };
 if (typeof module !== 'undefined') module.exports = BL;

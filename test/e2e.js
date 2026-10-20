@@ -51,12 +51,13 @@ async function ensureJob(page, i) {
   const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true };
   let { ctx, page, errors } = await boot(browser, phone, '?speed=10');
   await ev(page, () => localStorage.clear()); await page.reload({ waitUntil: 'load' }); await page.waitForTimeout(500);
-  ok(await page.isVisible('#btnGo'), 'home screen with Start button');
-  await page.screenshot({ path: `${OUT}/phone-home.png` });
-
-  await page.click('#btnGo', { force: true }); await page.waitForTimeout(400);
-  ok(await ev(page, () => window.__bl.mode === 'run' && !!window.__bl.run), 'season started');
+  ok(await ev(page, () => window.__bl.mode === 'run' && !!window.__bl.run && window.__bl.run.tut), 'new player lands straight in a (tutorial) season, no menu');
   ok(await ev(page, () => document.getElementById('hint').textContent.length > 0), 'tutorial hint shown');
+  ok(await page.isVisible('#pointer'), 'tutorial pointer points at something');
+  ok(await page.isVisible('#skipTut'), 'tutorial is skippable');
+  ok(await page.isVisible('#goalBar') && (await page.textContent('#goalTxt')).length > 3, 'goal bar shows the first goal: ' + await page.textContent('#goalTxt'));
+  ok(await ev(page, () => !/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\u2B50]/u.test(document.body.innerText)), 'no emoji anywhere in the visible UI');
+  await page.screenshot({ path: `${OUT}/phone-first.png` });
   await page.waitForFunction(() => document.querySelectorAll('.ocard').length > 0, null, { timeout: 5000 });
   const nCards = await page.locator('.ocard').count();
   ok(nCards >= 1, `orders arrived (${nCards} cards)`);
@@ -70,6 +71,32 @@ async function ensureJob(page, i) {
   await tapCanvas(page, await printerRect(page, 0));
   await page.waitForTimeout(250);
   ok(await ev(page, () => window.__bl.run.printers[0].queue.length === 1 && window.__bl.sel == null), 'order assigned by tapping the printer');
+  // goals: first delivery completes goal 1 and pays out
+  const g0 = await ev(page, () => ({ goal: window.__bl.meta.goal, money: window.__bl.run.money }));
+  await ev(page, () => { const r = window.__bl.run; window.__bl.C.tick(r, 20); });
+  await page.waitForTimeout(300);
+  await tapCanvas(page, await printerRect(page, 0)); await page.waitForTimeout(400);
+  const g1 = await ev(page, () => ({ goal: window.__bl.meta.goal, money: window.__bl.run.money, done: window.__bl.run.stats.done }));
+  ok(g1.done === 1 && g1.goal > g0.goal && g1.money > g0.money + 25, `first delivery -> goal 1 complete (goal ${g0.goal}->${g1.goal}, $${Math.round(g0.money)}->$${Math.round(g1.money)})`);
+  ok(!(await page.isHidden('#goalPop')), 'goal-complete popup shown');
+  await page.screenshot({ path: `${OUT}/phone-goal.png` });
+  // pause menu with separate music / sound toggles
+  await page.locator('#btnPause').tap(); await page.waitForTimeout(250);
+  ok(await page.isVisible('#pauseMenu') && await ev(page, () => window.__bl.paused), 'pause menu opens and pauses');
+  const tp = await ev(page, () => window.__bl.run.t); await page.waitForTimeout(500);
+  ok(await ev(page, (t) => window.__bl.run.t === t, tp), 'simulation frozen while paused');
+  await page.screenshot({ path: `${OUT}/phone-pause.png` });
+  await page.locator('#pMusic').tap(); await page.waitForTimeout(100);
+  ok(await ev(page, () => window.__bl.meta.settings.music === false && window.__bl.meta.settings.sfx === true && !window.__bl.S.music), 'music toggled off, sound still on');
+  await page.locator('#pSfx').tap(); await page.waitForTimeout(100);
+  ok(await ev(page, () => window.__bl.meta.settings.sfx === false && !window.__bl.S.sfx), 'sound toggled off separately');
+  await page.locator('#pMusic').tap(); await page.locator('#pSfx').tap();
+  ok(await ev(page, () => window.__bl.meta.settings.music && window.__bl.meta.settings.sfx), 'both back on');
+  await page.locator('#pResume').tap(); await page.waitForTimeout(200);
+  ok(!(await ev(page, () => window.__bl.paused)), 'resumed');
+  // skip the rest of the tutorial
+  await page.locator('#skipTut').tap(); await page.waitForTimeout(200);
+  ok(await ev(page, () => window.__bl.meta.tut.done) && await page.isHidden('#skipTut'), 'tutorial skipped');
 
   // buy a second printer by tapping the empty slot
   await ev(page, () => { window.__bl.run.money += 500; });
@@ -84,7 +111,7 @@ async function ensureJob(page, i) {
   // multi-colour rule: a 4-colour job can't go on the Sprout
   const multi = await ev(page, () => {
     const b = window.__bl, r = b.run;
-    const o = { id: 9999, tpl: 'figure', name: 'Test figurine', icon: '🧸', mat: 'PLA', nc: 4, q: 3, any: false, shape: 'fig', work: 40, g: 60, pay: 100, colors: ['#FF8000', '#F4EFE6', '#2B2B2E', '#2FA8A0'], arrive: r.t, deadline: r.t + 300, expires: r.t + 300 };
+    const o = { id: 9999, tpl: 'figure', name: 'Test figurine', icon: 'o:figure', mat: 'PLA', nc: 4, q: 3, any: false, shape: 'fig', work: 40, g: 60, pay: 100, colors: ['#FF8000', '#F4EFE6', '#2B2B2E', '#2FA8A0'], arrive: r.t, deadline: r.t + 300, expires: r.t + 300 };
     r.inbox.push(o);
     return { sprout: b.C.canAssign(r, o, 0).ok, rainbow: b.C.canAssign(r, o, 1).ok };
   });
@@ -132,7 +159,7 @@ async function ensureJob(page, i) {
   await ev(page, () => { const b = window.__bl; b.C.tick(b.run, 31); b.closeAlert(); });
   await ensureJob(page, 0); await ev(page, () => window.__bl.C.forceProblem(window.__bl.run, 0, 'string'));
   await ev(page, () => { const b = window.__bl; b.C.fix(b.run, 0, 'ignore'); });
-  ok(await ev(page, () => window.__bl.run.printers[0].pen >= 1.5), 'ignoring stringing costs 1.5★ on that print');
+  ok(await ev(page, () => window.__bl.run.printers[0].pen >= 1.5), 'ignoring stringing costs 1.5 stars on that print');
   await ev(page, () => window.__bl.closeAlert());
   // adhesion failure creates scrap and the recycler turns it into mystery filament
   const scrap = await ev(page, () => { const b = window.__bl, r = b.run; r.scrap = 0; r.fil.MYS = 0; const p = r.printers[0]; p.problem = null; p.busy = 0; p.used = 80; p.status = 'printing'; b.C.forceProblem(r, 0, 'adhesion'); const s = r.scrap; b.C.fix(r, 0, 'clean'); b.C.tick(r, 20); return { s, mys: r.fil.MYS }; });
@@ -206,7 +233,7 @@ async function ensureJob(page, i) {
   const rep0 = await ev(page, () => window.__bl.meta.rep);
   await page.click('#resMap .node[data-id=spares]', { force: true }); await page.waitForTimeout(150);
   await page.click('#btnResearch', { force: true }); await page.waitForTimeout(200);
-  ok(await ev(page, () => !!window.__bl.meta.research.spares), `researched "Spare nozzle stock" (${rep0}⭐ → ${await ev(page, () => window.__bl.meta.rep)}⭐)`);
+  ok(await ev(page, () => !!window.__bl.meta.research.spares), `researched "Spare nozzle stock" (${rep0} -> ${await ev(page, () => window.__bl.meta.rep)} rep)`);
   await page.screenshot({ path: `${OUT}/phone-research.png` });
 
   // persistence of meta progress
@@ -214,14 +241,14 @@ async function ensureJob(page, i) {
   ok(await ev(page, () => window.__bl.meta.seasons === 1 && window.__bl.meta.research.spares && window.__bl.meta.lifetimeRep > 0 && !window.__bl.meta.run), 'save persists after reload (seasons, research, reputation)');
 
   // prestige: earn enough lab reputation, move to the Workshop
-  await ev(page, () => { window.__bl.meta.labRep = 105; window.__bl.meta.rep += 20; window.__bl.showTab('labs'); });
+  await ev(page, () => { window.__bl.meta.labRep = 190; window.__bl.meta.rep += 20; window.__bl.showTab('labs'); });
   await page.waitForTimeout(400);
   await page.click('#labMap .node[data-id=L1]', { force: true }); await page.waitForTimeout(150);
   await page.screenshot({ path: `${OUT}/phone-labs.png` });
   await page.click('#btnMove', { force: true }); await page.waitForTimeout(200);
   await page.click('#btnMoveYes', { force: true }); await page.waitForTimeout(300);
   const pres = await ev(page, () => ({ lab: window.__bl.meta.lab, rep: window.__bl.meta.rep, res: Object.keys(window.__bl.meta.research).length, tr: window.__bl.meta.trophies }));
-  ok(pres.lab === 1 && pres.rep === 0 && pres.res === 1 && pres.tr > 0, `prestige: moved to Workshop, research reset, 🏆 ${pres.tr} trophies`);
+  ok(pres.lab === 1 && pres.rep === 0 && pres.res === 1 && pres.tr > 0, `prestige: moved to Workshop, research reset, ${pres.tr} trophies`);
   await ev(page, () => window.__bl.showTab('labs')); await page.waitForTimeout(300);
   await page.click('#labMap .node[data-id=catbed]', { force: true }); await page.waitForTimeout(150);
   await page.click('#labInfo .btn', { force: true }); await page.waitForTimeout(150);
@@ -242,9 +269,8 @@ async function ensureJob(page, i) {
 
   /* ================= desktop 1280x720 ================= */
   ({ ctx, page, errors } = await boot(browser, { viewport: { width: 1280, height: 720 } }, '?speed=10'));
-  await ev(page, () => localStorage.clear()); await page.reload({ waitUntil: 'load' }); await page.waitForTimeout(500);
-  await page.screenshot({ path: `${OUT}/desktop-home.png` });
-  await page.click('#btnGo', { force: true }); await page.waitForTimeout(300);
+  await ev(page, () => localStorage.clear()); await page.reload({ waitUntil: 'load' }); await page.waitForTimeout(600);
+  ok(await ev(page, () => window.__bl.mode === 'run'), 'desktop: fresh player lands in gameplay');
   ok(await ev(page, () => document.body.classList.contains('wide')), 'desktop uses the side tray layout');
   await page.waitForFunction(() => document.querySelectorAll('.ocard').length > 0, null, { timeout: 5000 });
   await page.locator('.ocard').first().click(); await page.waitForTimeout(150);
@@ -269,9 +295,7 @@ async function ensureJob(page, i) {
 
   /* ================= phone landscape ================= */
   ({ ctx, page, errors } = await boot(browser, { viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true }, ''));
-  await ev(page, () => localStorage.clear()); await page.reload({ waitUntil: 'load' }); await page.waitForTimeout(400);
-  await page.screenshot({ path: `${OUT}/landscape-home.png` });
-  await page.click('#btnGo', { force: true }); await page.waitForTimeout(300);
+  await ev(page, () => localStorage.clear()); await page.reload({ waitUntil: 'load' }); await page.waitForTimeout(600);
   await page.waitForFunction(() => document.querySelectorAll('.ocard').length > 0, null, { timeout: 8000 });
   await page.locator('.ocard').first().tap(); await page.waitForTimeout(150);
   await tapCanvas(page, await printerRect(page, 0)); await page.waitForTimeout(200);
