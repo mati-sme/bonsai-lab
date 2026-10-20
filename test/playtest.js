@@ -14,6 +14,7 @@ const tag = `${w}x${h}`;
   const log = []; const note = (s) => { log.push(`${T()}s  ${s}`); };
   await p.goto('file://' + __dirname + '/../index.html');
   await p.waitForFunction(() => window.__bl && window.__bl.mode === 'run', null, { timeout: 8000 });
+  await p.evaluate(() => { window.__fc = 0; const f = () => { window.__fc++; requestAnimationFrame(f); }; requestAnimationFrame(f); });
   note('landed in gameplay (mode=run, tutorial=' + (await p.evaluate(() => !!window.__bl.run.tut)) + ')');
   let shot = 0; const snap = async (why) => { const f = `out/play-${tag}-${String(++shot).padStart(2, '0')}.png`; await p.screenshot({ path: f }); note(`screenshot ${f} (${why})`); };
   await snap('first frame');
@@ -35,9 +36,10 @@ const tag = `${w}x${h}`;
         ptr: ptr.classList.contains('hidden') ? null : [+ptr.dataset.x, +ptr.dataset.y],
         plate: r ? r.printers.findIndex((x) => x && x.plate) : -1, idle: r ? r.printers.findIndex((x) => x && !x.queue.length && !x.plate && !x.problem) : -1,
         prob: r ? r.printers.findIndex((x) => x && x.problem) : -1, hits: window.BL.Render.hits.printers.map((h) => h && [h.x + h.w / 2, h.y + h.h / 2]),
-        card: q('#orders .ocard'), sumOpen: !document.getElementById('summary').classList.contains('hidden'),
+        card: q('#orders .ocard'), dbg: B.dbg, fc: window.__fc, gt: r && Math.round(r.t), cache: window.BL.Icons.cacheSize ? window.BL.Icons.cacheSize() : -1, nodes: document.getElementsByTagName('*').length, sheets: document.styleSheets.length, rules: [...document.styleSheets].reduce((a, x) => { try { return a + x.cssRules.length; } catch (e) { return a; } }, 0), ptype: r && r.printers.map((x) => x && x.problem && JSON.stringify(x.problem)), hb: window.BL.Render.hits.printers.map((h) => h && [Math.round(h.x), Math.round(h.y), Math.round(h.w), Math.round(h.h)]), under: (() => { const h = window.BL.Render.hits.printers[0]; if (!h) return ''; const e = document.elementFromPoint(h.x + h.w / 2, h.y + h.h / 2); return e ? (e.id || e.className) : 'none'; })(), sumOpen: !document.getElementById('summary').classList.contains('hidden'),
       };
     });
+    if (!st.__n) { const k = Math.floor((Date.now() - t0) / 15000); if (!seen['s' + k]) { seen['s' + k] = 1; note('state ' + JSON.stringify({ done: st.done, money: st.money, prob: st.prob, idle: st.idle, plate: st.plate, ptr: st.ptr, sheet: st.sheetOpen, alert: !!st.alert, fc: st.fc, gt: st.gt, nodes: st.nodes, rules: st.rules, ptype: st.ptype, hb: st.hb })); } }
     if (st.done >= 1) await once('d1', `first delivery (money $${st.money})`);
     if (st.goal >= 1) await once('g1', 'first goal completed');
     if (st.alert) { await once('al', 'first problem popup'); await click(...st.alert); note('chose a fix in the popup'); continue; }
@@ -50,7 +52,7 @@ const tag = `${w}x${h}`;
     // after the tutorial: play like a simple human
     if (st.tutDone) {
       if (st.plate >= 0 && st.hits[st.plate]) { await click(...st.hits[st.plate]); continue; }
-      if (st.prob >= 0 && st.hits[st.prob]) { await click(...st.hits[st.prob]); continue; }
+      if (st.prob >= 0 && st.hits[st.prob]) { await click(...st.hits[st.prob]); if (!seen['tp' + st.prob]) { seen['tp' + st.prob] = 1; await p.waitForTimeout(200); note('tapped problem printer ' + st.prob + ' at ' + st.hits[st.prob].map(Math.round) + ' -> alert ' + (await p.evaluate(() => window.__bl.alertPi))); } continue; }
       if (st.idle >= 0 && st.card && st.hits[st.idle]) { await click(...st.card); await p.waitForTimeout(150); await click(...st.hits[st.idle]); continue; }
     }
   }

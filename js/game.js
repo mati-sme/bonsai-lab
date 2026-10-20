@@ -92,6 +92,11 @@ function step(dt) {
     if (mode === 'run' && r) {
       const g = !r.over ? C.checkGoals(meta, r) : null; if (g) drainEvents(r);
       updateHud(r); renderOrders(r); refreshSheet(); refreshAlert(); updateTutorial(r);
+      // an issue that came up while a sheet/menu was open pops as soon as the player is back in the lab
+      if (alertPi < 0 && !alertDelay && !r.over && pending.length && !isModalOpen()) {
+        pending = pending.filter((x) => r.printers[x] && r.printers[x].problem);
+        if (pending.length) openAlert(pending.shift());
+      }
     }
   }
   saveTimer -= dt;
@@ -344,6 +349,11 @@ function toast(a, b) {
   t.style.top = Math.round((mode === 'run' ? view.vy + 6 + ($('goalBar').classList.contains('hidden') ? 0 : 44 * Z) + ($('goalPop').classList.contains('hidden') ? 0 : 50 * Z) : 76 * Z) / Z) + 'px'; t.innerHTML = a + (b ? `<small>${b}</small>` : '');
   t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2000);
 }
+// touch: the tap that opens a modal is followed by a synthesized click on the new backdrop; ignore it
+const modalOpenedAt = {};
+new MutationObserver((ms) => { for (const m of ms) if (!m.target.classList.contains('hidden') && (m.oldValue || '').includes('hidden')) modalOpenedAt[m.target.id] = performance.now(); })
+  .observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+const backdropOk = (id) => performance.now() - (modalOpenedAt[id] || 0) > 400;
 const isModalOpen = () => ['sheet', 'alert', 'summary', 'pauseMenu'].some((id) => !$(id).classList.contains('hidden'));
 
 /* ---------- pause menu ---------- */
@@ -366,7 +376,7 @@ function openPause() {
   $('pHome').onclick = () => { $('pauseMenu').classList.add('hidden'); paused = false; goHome('lab'); };
 }
 function closePause() { $('pauseMenu').classList.add('hidden'); paused = false; S.play('tap'); }
-$('pauseMenu').addEventListener('click', (e) => { if (e.target.id === 'pauseMenu') closePause(); });
+$('pauseMenu').addEventListener('click', (e) => { if (e.target.id === 'pauseMenu' && backdropOk('pauseMenu')) closePause(); });
 function paintToggles() {
   const m = meta.settings.music, s = meta.settings.sfx;
   for (const [id, on, a, b, label] of [['pMusic', m, 'music', 'musicOff', 'Music'], ['pSfx', s, 'sound', 'soundOff', 'Sound'], ['mMusic', m, 'music', 'musicOff', 'Music'], ['mSfx', s, 'sound', 'soundOff', 'Sound']]) {
@@ -392,7 +402,7 @@ function openSheet(kind, arg) {
   refreshSheet(true);
 }
 function closeSheet() { sheet = null; $('sheet').classList.add('hidden'); upSel = null; }
-$('sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') closeSheet(); });
+$('sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet' && backdropOk('sheet')) closeSheet(); });
 function head(icon, title) { return `<h2>${icon ? ic(icon) : ''}<span>${title}</span><button class="round small x" data-close aria-label="Close">${ic('close')}</button></h2>`; }
 function wireClose(card) { card.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', closeSheet)); }
 function sheetSig() {
@@ -596,7 +606,7 @@ function refreshAlert() {
   if (!p || !p.problem) return closeAlert();
   if ($('alertCard')._sig !== alertSig(r, alertPi)) openAlert(alertPi);
 }
-$('alert').addEventListener('click', (e) => { if (e.target.id === 'alert') closeAlert(true); });
+$('alert').addEventListener('click', (e) => { if (e.target.id === 'alert' && backdropOk('alert')) closeAlert(true); });
 
 /* ---------- season flow ---------- */
 function startSeason(fresh) {
@@ -807,6 +817,7 @@ root.__bl = {
   get meta() { return meta; }, set meta(m) { meta = m; }, get run() { return run(); }, get mode() { return mode; }, get sel() { return sel; },
   C, D, R, S, startSeason, goHome, showTab, openAlert, closeAlert, openSheet, closeSheet, openPause, closePause, tapAt, tapPrinter, save, load, renderHome,
   setPaused: (v) => { paused = v; }, get paused() { return paused; }, selectOrder: (id) => { sel = id; ordersSig = ''; }, get view() { return view; }, get alertPi() { return alertPi; },
+  get dbg() { return { alertDelay: !!alertDelay, pending: pending.slice(), modal: isModalOpen(), sheet: sheet && sheet.kind, paused, mode }; },
   manual(on) { manual = !!on; if (!manual) { lastFrame = 0; requestAnimationFrame(frame); } }, step, resize,
 };
 })(window);

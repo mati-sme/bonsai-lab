@@ -150,6 +150,15 @@ async function ensureJob(page, i) {
     const after = await ev(page, () => { const p = window.__bl.run.printers[0]; return { problem: p.problem && p.problem.type + ':' + p.problem.mat + ' fil=' + JSON.stringify(window.__bl.run.fil), busy: p.busy, status: p.status, money: window.__bl.run.money, ups: p.ups, glue: p.glue }; });
     ok((!after.problem || !after.problem.startsWith(type + ':')) && !(await page.isVisible('#alert')), `"${type}" fixed with "${opt}" (status ${after.status}${after.problem ? ' ' + after.problem : ''}${after.busy ? `, busy ${after.busy.toFixed(0)}s` : ''}, $${Math.round(money0)}→$${Math.round(after.money)})`);
   }
+  // touch regression: "Later", then tapping the printer reopens the popup (the tap's ghost click must not close it again)
+  await ev(page, () => window.__bl.closeAlert()); await ensureJob(page, 0);
+  await ev(page, () => window.__bl.C.forceProblem(window.__bl.run, 0, 'string')); await page.waitForTimeout(800);
+  if (await page.isVisible('#aLater')) await page.locator('#aLater').tap();
+  await page.waitForTimeout(300);
+  { const r0 = await printerRect(page, 0); await page.touchscreen.tap(r0.x + r0.w / 2, r0.y + r0.h * 0.55); }
+  await page.waitForTimeout(500);
+  ok(await page.isVisible('#alert'), 'after "Later", tapping the printer reopens its issue popup (no ghost-click close)');
+  await ev(page, () => { const b = window.__bl; b.C.fix(b.run, 0, 'tune'); b.closeAlert(); });
   // alternative fixes that cost time instead of money, and the ignore path
   await ensureJob(page, 0); await ev(page, () => window.__bl.C.forceProblem(window.__bl.run, 0, 'clog'));
   const nozz = await ev(page, () => { const b = window.__bl; b.run.spares = 0; return b.C.problemOptions(b.run, 0).find((o) => o.id === 'spare').ok; });
